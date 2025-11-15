@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grecia Repo Viewer</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Mengatur font default menjadi Inter */
+  body {
+    font-family: 'Inter', sans-serif;
+  }
+  /* Mengatasi masalah tinggi flex di perangkat seluler */
+  .flex-full-height {
+    min-height: 0;
+  }
+  /* Gaya untuk blok kode */
+  #fileDisplay {
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+</style>
+</head>
+<body class="bg-gray-100 min-h-screen text-gray-800 antialiased flex flex-col lg:flex-row">
+
+<!-- Mobile Header and Sidebar Toggle -->
+<header class="p-4 bg-white shadow-md lg:hidden flex items-center justify-between sticky top-0 z-40">
+    <h1 class="text-xl font-bold text-gray-900">Grecia Repo</h1>
+    <button id="sidebarToggle" class="p-2 rounded-full bg-blue-600 text-white shadow-lg hover:bg-blue-700 transition duration-150">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+    </button>
+</header>
+
+<!-- Sidebar (Responsive Drawer on Mobile) -->
+<div id="sidebar" class="fixed inset-y-0 left-0 transform -translate-x-full lg:translate-x-0 w-64 bg-white shadow-2xl lg:shadow-md p-4 overflow-y-auto transition-transform duration-300 ease-in-out z-50 lg:static lg:flex-shrink-0 lg:rounded-r-lg">
+    <div class="flex justify-between items-center mb-4 lg:hidden">
+        <h2 class="text-xl font-bold">Files</h2>
+        <button id="closeSidebar" class="text-gray-500 hover:text-gray-700 p-1 rounded-full">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+    </div>
+    
+    <h2 class="text-xl font-bold mb-4 hidden lg:block">Files</h2>
+
+    <div id="fileList" class="flex flex-col space-y-2">
+        <div class="text-gray-500 text-sm italic">Loading files...</div>
+    </div>
+</div>
+
+<!-- Overlay for Mobile Sidebar -->
+<div id="sidebarOverlay" class="fixed inset-0 bg-black opacity-0 pointer-events-none transition-opacity duration-300 z-40 lg:hidden"></div>
+
+<!-- Main Content Area -->
+<main class="flex-1 p-4 md:p-6 flex flex-col flex-full-height">
+    <div class="bg-white rounded-xl shadow-lg p-6 flex flex-col flex-1 min-h-[70vh]">
+        <h2 class="text-2xl font-bold mb-4 text-blue-600">File Viewer</h2>
+
+        <!-- Code view -->
+        <div id="codeViewContainer" class="flex-1 bg-gray-50 border border-gray-200 rounded-lg p-4 overflow-auto mb-4 transition-all duration-300">
+            <pre id="fileDisplay" class="text-sm md:text-base text-gray-800 p-0 m-0">Select a file from the sidebar to view its content.</pre>
+        </div>
+
+        <!-- HTML iframe preview -->
+        <div id="iframeContainer" class="flex-1 mb-4 hidden rounded-lg overflow-hidden transition-all duration-300">
+            <iframe id="fileIframe" class="w-full h-full border-2 border-green-500 rounded-lg" sandbox="allow-scripts allow-same-origin"></iframe>
+        </div>
+
+        <!-- Buttons -->
+        <div class="flex flex-wrap gap-3 mt-auto pt-4 border-t border-gray-100">
+            <button id="copyBtn" class="px-5 py-2 bg-blue-600 text-white rounded-full font-semibold shadow-md hover:bg-blue-700 transition duration-150 disabled:opacity-50" disabled>Copy Code</button>
+            <button id="viewWebBtn" class="px-5 py-2 bg-green-600 text-white rounded-full font-semibold shadow-md hover:bg-green-700 transition duration-150 hidden">View Web Preview</button>
+            <button id="viewCodeBtn" class="px-5 py-2 bg-gray-600 text-white rounded-full font-semibold shadow-md hover:bg-gray-700 transition duration-150 hidden">View Code</button>
+        </div>
+    </div>
+</main>
+
+<!-- Toast Notification Container -->
+<div id="toastContainer" class="fixed bottom-4 right-4 space-y-2 z-50"></div>
+
+<script>
+const user = 'ourobyte';
+const repo = 'Grecia-generator-version';
+const path = ''; // root folder
+
+// --- DOM Elements ---
+const sidebar = document.getElementById('sidebar');
+const sidebarToggle = document.getElementById('sidebarToggle');
+const closeSidebar = document.getElementById('closeSidebar');
+const sidebarOverlay = document.getElementById('sidebarOverlay');
+const fileListContainer = document.getElementById('fileList');
+const fileDisplay = document.getElementById('fileDisplay');
+const iframeContainer = document.getElementById('iframeContainer');
+const fileIframe = document.getElementById('fileIframe');
+const codeViewContainer = document.getElementById('codeViewContainer');
+const copyBtn = document.getElementById('copyBtn');
+const viewWebBtn = document.getElementById('viewWebBtn');
+const viewCodeBtn = document.getElementById('viewCodeBtn');
+const toastContainer = document.getElementById('toastContainer');
+
+// --- State and Helpers ---
+
+/**
+ * Tampilkan pesan toast kustom (mengganti alert()).
+ * @param {string} message 
+ * @param {string} type (success/error)
+ */
+function showToast(message, type = 'success') {
+    const colorClass = type === 'success' ? 'bg-green-500' : 'bg-red-500';
+    const toast = document.createElement('div');
+    toast.className = `p-4 text-sm font-medium text-white rounded-lg shadow-xl ${colorClass} transform transition-all duration-300 translate-y-full opacity-0`;
+    toast.textContent = message;
+
+    toastContainer.appendChild(toast);
+
+    // Animasi masuk
+    setTimeout(() => {
+        toast.style.transform = 'translateY(0)';
+        toast.style.opacity = '1';
+    }, 10);
+
+    // Animasi keluar setelah 3 detik
+    setTimeout(() => {
+        toast.style.transform = 'translateY(20px)';
+        toast.style.opacity = '0';
+        toast.addEventListener('transitionend', () => toast.remove());
+    }, 3000);
+}
+
+// --- Sidebar Responsiveness ---
+
+function openSidebar() {
+    sidebar.classList.remove('-translate-x-full');
+    sidebarOverlay.classList.remove('opacity-0', 'pointer-events-none');
+    sidebarOverlay.classList.add('opacity-50', 'pointer-events-auto');
+}
+
+function closeSidebarHandler() {
+    sidebar.classList.add('-translate-x-full');
+    sidebarOverlay.classList.remove('opacity-50', 'pointer-events-auto');
+    sidebarOverlay.classList.add('opacity-0', 'pointer-events-none');
+}
+
+sidebarToggle.addEventListener('click', openSidebar);
+closeSidebar.addEventListener('click', closeSidebarHandler);
+sidebarOverlay.addEventListener('click', closeSidebarHandler);
+
+// Hanya menutup sidebar pada perubahan ukuran jika berada di mode seluler/drawer
+window.addEventListener('resize', () => {
+    if (window.innerWidth >= 1024) { // lg breakpoint
+        closeSidebarHandler();
+    }
+});
+
+
+// --- File Fetching and Viewing ---
+
+async function fetchFiles() {
+    try {
+        const url = `https://api.github.com/repos/${user}/${repo}/contents/${path}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        
+        const files = await res.json();
+
+        fileListContainer.innerHTML = '';
+        
+        // Filter out directories and only list files
+        const fileButtons = files.filter(file => file.type === 'file').map(file => {
+            const btn = document.createElement('button');
+            btn.textContent = file.name;
+            btn.className = 'text-left px-3 py-2 text-gray-700 rounded-lg hover:bg-blue-100 transition duration-150 truncate';
+            btn.onclick = () => {
+                loadFile(file);
+                // Tutup sidebar di mobile setelah memilih file
+                if (window.innerWidth < 1024) {
+                    closeSidebarHandler();
+                }
+            };
+            return btn;
+        });
+
+        if (fileButtons.length === 0) {
+            fileListContainer.innerHTML = '<div class="text-sm text-gray-500 p-2">No files found in the repository root.</div>';
+        } else {
+             fileButtons.forEach(btn => fileListContainer.appendChild(btn));
+        }
+        
+    } catch (error) {
+        console.error("Error fetching files:", error);
+        fileListContainer.innerHTML = `<div class="text-sm text-red-500 p-2">Failed to load files: ${error.message}</div>`;
+    }
+}
+
+async function loadFile(file) {
+    try {
+        fileDisplay.textContent = 'Loading file content...';
+        copyBtn.disabled = true;
+
+        // Reset view states
+        iframeContainer.classList.add('hidden');
+        codeViewContainer.classList.remove('hidden');
+        viewWebBtn.classList.add('hidden');
+        viewCodeBtn.classList.add('hidden');
+
+        const res = await fetch(file.download_url);
+        if (!res.ok) throw new Error('Failed to download file.');
+        
+        const text = await res.text();
+        fileDisplay.textContent = text;
+        copyBtn.disabled = false;
+
+        const isHtml = file.name.endsWith('.html') || file.name.endsWith('.htm');
+        
+        if (isHtml) {
+            viewWebBtn.classList.remove('hidden');
+            
+            // Set up web view functionality
+            const switchToWebView = () => {
+                fileIframe.srcdoc = text;
+                codeViewContainer.classList.add('hidden');
+                iframeContainer.classList.remove('hidden');
+                viewWebBtn.classList.add('hidden');
+                viewCodeBtn.classList.remove('hidden');
+            };
+            
+            // Set up code view functionality
+            const switchToCodeView = () => {
+                codeViewContainer.classList.remove('hidden');
+                iframeContainer.classList.add('hidden');
+                viewWebBtn.classList.remove('hidden');
+                viewCodeBtn.classList.add('hidden');
+            };
+
+            viewWebBtn.onclick = switchToWebView;
+            viewCodeBtn.onclick = switchToCodeView;
+            
+            // Optionally auto-switch to code view on load
+            switchToCodeView(); 
+
+        } else {
+            // Non-HTML files only show code view
+            viewWebBtn.classList.add('hidden');
+            viewCodeBtn.classList.add('hidden');
+        }
+
+    } catch (error) {
+        console.error("Error loading file:", error);
+        fileDisplay.textContent = `Error: Could not load file content. ${error.message}`;
+        copyBtn.disabled = true;
+    }
+}
+
+// --- Copy Functionality ---
+copyBtn.onclick = () => {
+    if (copyBtn.disabled) return;
+    
+    // Get content from the currently displayed element (code view)
+    const content = fileDisplay.textContent; 
+
+    // Use execCommand('copy') as a fallback/compatibility option
+    if (document.execCommand && document.queryCommandSupported('copy')) {
+        const textarea = document.createElement('textarea');
+        textarea.textContent = content;
+        textarea.style.position = 'fixed'; // Agar tidak terlihat
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+            document.execCommand('copy');
+            showToast('Code copied to clipboard!');
+        } catch (err) {
+            console.error('execCommand copy failed:', err);
+            showToast('Failed to copy code.', 'error');
+        }
+        document.body.removeChild(textarea);
+    } else {
+        // Use modern clipboard API if available (though may fail in iframes)
+        navigator.clipboard.writeText(content)
+            .then(() => showToast('Code copied to clipboard!'))
+            .catch(err => {
+                console.error('Clipboard API failed:', err);
+                showToast('Failed to copy code. Try selecting manually.', 'error');
+            });
+    }
+};
+
+// Initial data fetch
+fetchFiles();
+</script>
+</body>
+</html>
